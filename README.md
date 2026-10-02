@@ -97,13 +97,13 @@ Each dataset can be converted into a persistent BurstCLI profile.
 For example:
 
 ```text
-mywords.txt
+samplewords.txt
 ```
 
 can become:
 
 ```text
-mywords.json
+samplewords.json
 ```
 
 A profile contains the dataset, records, and current position.
@@ -112,8 +112,8 @@ Example:
 
 ```json
 {
-    "name": "mywords",
-    "dataset": "mywords.txt",
+    "name": "samplewords",
+    "dataset": "samplewords.txt",
     "words": [
         "pointer",
         "memory",
@@ -133,7 +133,7 @@ Example:
 Clone the repository:
 
 ```bash
-git clone https://github.com/YOUR_USERNAME/burstcli.git
+git clone https://github.com/j-waweru/burstcli.git
 cd burstcli
 ```
 
@@ -159,19 +159,19 @@ kernel
 Then run:
 
 ```bash
-python burstcli.py --load mywords.txt
+python burstcli.py --load samplewords.txt
 ```
 
 This creates:
 
 ```text
-mywords.json
+samplewords.json
 ```
 
 ### Run a profile
 
 ```bash
-python burstcli.py --profile mywords
+python burstcli.py --profile samplewords
 ```
 
 ### List profiles
@@ -187,15 +187,10 @@ BURSTCLI
 PROFILES
 ────────────────────────────────────────────────────────────────
 
-  1  programming
+  1  samplewords
       Words   : 200
       Progress: 10/200
-      File    : programming.json
-
-  2  cybersecurity
-      Words   : 150
-      Progress: 37/150
-      File    : cybersecurity.json
+      File    : samplewords.json
 
 2 profile(s)
 ```
@@ -266,8 +261,8 @@ burstcli/
 ├── burstcli.py
 ├── README.md
 │
-├── mywords.txt
-├── mywords.json
+├── samplewords.txt
+├── samplewords.json
 │
 └── ...
 ```
