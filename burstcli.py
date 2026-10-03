@@ -20,8 +20,8 @@ PROFILE_EXTENSION = ".json"
 
 UI_WIDTH = 64
 INNER_WIDTH = UI_WIDTH - 2
-
 PROGRESS_WIDTH = 48
+
 
 
 # ============================================================
@@ -50,30 +50,14 @@ class Style:
     BRIGHT_WHITE = "\033[97m"
 
 
-# Matches ANSI color/style escape sequences.
 ANSI_RE = re.compile(r"\x1b\[[0-9;]*m")
 
 
 def visible_len(text):
-    """
-    Return the visible length of a string.
-
-    ANSI escape sequences do not occupy visible terminal columns,
-    so they are removed before calculating the length.
-    """
-
-    return len(
-        ANSI_RE.sub("", text)
-    )
+    return len(ANSI_RE.sub("", text))
 
 
-def styled(
-    text,
-    color="",
-    bold=False,
-    dim=False
-):
-
+def styled(text, color="", bold=False, dim=False):
     parts = []
 
     if color:
@@ -92,29 +76,17 @@ def styled(
 
 
 def enable_ansi():
-    """
-    Enable ANSI escape sequences on Windows where possible.
-    """
-
     if os.name != "nt":
         return
 
     try:
-
         import ctypes
 
         kernel32 = ctypes.windll.kernel32
-
         handle = kernel32.GetStdHandle(-11)
-
         mode = ctypes.c_uint32()
 
-        if kernel32.GetConsoleMode(
-            handle,
-            ctypes.byref(mode)
-        ):
-
-            # ENABLE_VIRTUAL_TERMINAL_PROCESSING
+        if kernel32.GetConsoleMode(handle, ctypes.byref(mode)):
             kernel32.SetConsoleMode(
                 handle,
                 mode.value | 0x0004
@@ -129,82 +101,68 @@ def enable_ansi():
 # ============================================================
 
 def clear_screen():
-    """
-    Clear terminal and move cursor to top-left.
-    """
-
-    sys.stdout.write(
-        "\033[2J\033[H"
-    )
-
+    sys.stdout.write("\033[2J\033[H")
     sys.stdout.flush()
 
 
 def hide_cursor():
-
-    sys.stdout.write(
-        "\033[?25l"
-    )
-
+    sys.stdout.write("\033[?25l")
     sys.stdout.flush()
 
 
 def show_cursor():
-
-    sys.stdout.write(
-        "\033[?25h"
-    )
-
+    sys.stdout.write("\033[?25h")
     sys.stdout.flush()
 
 
 def move_cursor_home():
-
-    sys.stdout.write(
-        "\033[H"
-    )
-
+    sys.stdout.write("\033[H")
     sys.stdout.flush()
 
 
 def read_key():
-
     return msvcrt.getwch()
 
 
 def wait_for_key():
-
     msvcrt.getwch()
+
+
+def read_special_key():
+    """
+    Return:
+        ("left" | "right" | "up" | "down" | "other", raw)
+
+    Windows arrow keys arrive as an extended-key prefix followed
+    by a second character.
+    """
+    key = read_key()
+
+    if key in ("\x00", "\xe0"):
+        code = read_key()
+
+        mapping = {
+            "K": "left",
+            "M": "right",
+            "H": "up",
+            "P": "down",
+        }
+
+        return mapping.get(code, "other"), code
+
+    return None, key
 
 
 # ============================================================
 # Fixed-width text helpers
 # ============================================================
 
-def pad_visible(
-    text,
-    width,
-    align="left"
-):
-    """
-    Pad a string to an exact visible width.
-
-    ANSI color codes are ignored when calculating width.
-    """
-
+def pad_visible(text, width, align="left"):
     current_length = visible_len(text)
 
     if current_length >= width:
-
-        # Avoid cutting ANSI escape sequences.
-        # If the text is too long, strip styling before truncating.
         if current_length > width:
-
-            plain = ANSI_RE.sub(
-                "",
-                text
-            )
-
+            plain = ANSI_RE.sub("", text)
             return plain[:width]
 
         return text
@@ -212,92 +170,39 @@ def pad_visible(
     padding = width - current_length
 
     if align == "right":
-
-        return (
-            " " * padding
-            + text
-        )
+        return " " * padding + text
 
     if align == "center":
-
         left = padding // 2
         right = padding - left
+        return " " * left + text + " " * right
 
-        return (
-            " " * left
-            + text
-            + " " * right
-        )
-
-    return (
-        text
-        + " " * padding
-    )
+    return text + " " * padding
 
 
-def centered_text(
-    text,
-    width=INNER_WIDTH
-):
-
-    return pad_visible(
-        text,
-        width,
-        "center"
-    )
+def centered_text(text, width=INNER_WIDTH):
+    return pad_visible(text, width, "center")
 
 
 # ============================================================
 # Panel UI
 # ============================================================
 
-BORDER_TOP = (
-    "╭"
-    + "─" * (UI_WIDTH - 2)
-    + "╮"
-)
-
-BORDER_BOTTOM = (
-    "╰"
-    + "─" * (UI_WIDTH - 2)
-    + "╯"
-)
-
-BORDER_SEPARATOR = (
-    "├"
-    + "─" * (UI_WIDTH - 2)
-    + "┤"
-)
+BORDER_TOP = "╭" + "─" * (UI_WIDTH - 2) + "╮"
+BORDER_BOTTOM = "╰" + "─" * (UI_WIDTH - 2) + "╯"
+BORDER_SEPARATOR = "├" + "─" * (UI_WIDTH - 2) + "┤"
 
 
 def panel_line(content=""):
-    """
-    Create an exact-width panel line.
-
-    Result is always exactly UI_WIDTH visible characters.
-    """
-
-    content = pad_visible(
-        content,
-        INNER_WIDTH,
-        "left"
-    )
-
-    return (
-        "│"
-        + content
-        + "│"
-    )
+    content = pad_visible(content, INNER_WIDTH, "left")
+    return "│" + content + "│"
 
 
 def print_panel(lines):
-
     print(BORDER_TOP)
 
     for line in lines:
-        print(
-            panel_line(line)
-        )
+        print(panel_line(line))
 
     print(BORDER_BOTTOM)
 
@@ -307,10 +212,7 @@ def print_panel(lines):
 # ============================================================
 
 def profile_path(profile_name):
-
-    return Path(
-        f"{profile_name}{PROFILE_EXTENSION}"
-    )
+    return Path(f"{profile_name}{PROFILE_EXTENSION}")
 
 
 # ============================================================
@@ -320,24 +222,16 @@ def profile_path(profile_name):
 def load_dataset_file(path):
     """
     Load comma, whitespace, or newline separated words.
+
+    New profiles normalize every word to lowercase.
     """
+    text = path.read_text(encoding="utf-8")
+    text = text.replace(",", " ")
 
-    text = path.read_text(
-        encoding="utf-8"
-    )
-
-    text = text.replace(
-        ",",
-        " "
-    )
-
-    words = text.split()
+    words = [word.lower() for word in text.split()]
 
     if not words:
-
-        raise ValueError(
-            "Dataset contains no words."
-        )
+        raise ValueError("Dataset contains no words.")
 
     return words
 
@@ -346,53 +240,34 @@ def load_dataset_file(path):
 # Profile creation
 # ============================================================
 
-def create_profile_from_dataset(
-    dataset_path
-):
-
-    dataset_path = Path(
-        dataset_path
-    )
+def create_profile_from_dataset(dataset_path):
+    dataset_path = Path(dataset_path)
 
     if not dataset_path.exists():
-
         print(
             styled(
                 f"Dataset not found: {dataset_path}",
                 Style.BRIGHT_RED
             )
         )
-
         return False
 
     try:
+        words = load_dataset_file(dataset_path)
 
-        words = load_dataset_file(
-            dataset_path
-        )
-
-    except (
-        OSError,
-        ValueError
-    ) as error:
-
+    except (OSError, ValueError) as error:
         print(
             styled(
                 f"Error loading dataset: {error}",
                 Style.BRIGHT_RED
             )
         )
-
         return False
 
     profile_name = dataset_path.stem
-
-    output_path = profile_path(
-        profile_name
-    )
+    output_path = profile_path(profile_name)
 
     if output_path.exists():
-
         print(
             styled(
                 f"Profile already exists: {output_path}",
@@ -402,22 +277,15 @@ def create_profile_from_dataset(
 
         print()
 
-        answer = input(
-            "Overwrite it? [y/N]: "
-        ).strip().lower()
+        answer = input("Overwrite it? [y/N]: ").strip().lower()
 
         if answer != "y":
-
-            print(
-                "Profile not created."
-            )
-
+            print("Profile not created.")
             return False
 
     records = {}
 
     for word in words:
-
         records[word] = None
 
     profile = {
@@ -429,24 +297,18 @@ def create_profile_from_dataset(
     }
 
     try:
-
         output_path.write_text(
-            json.dumps(
-                profile,
-                indent=4
-            ),
+            json.dumps(profile, indent=4),
             encoding="utf-8"
         )
 
     except OSError as error:
-
         print(
             styled(
                 f"Could not create profile: {error}",
                 Style.BRIGHT_RED
             )
         )
-
         return False
 
     print()
@@ -460,23 +322,17 @@ def create_profile_from_dataset(
     )
 
     print()
-
     print(
         f"  Profile : "
         f"{styled(output_path.name, Style.BRIGHT_CYAN)}"
     )
-
     print(
         f"  Words   : "
         f"{styled(str(len(words)), Style.BRIGHT_WHITE)}"
     )
 
     print()
-
-    print(
-        "Run it with:"
-    )
-
+    print("Run it with:")
     print(
         styled(
             f"  burstcli --profile {profile_name}",
@@ -493,147 +349,104 @@ def create_profile_from_dataset(
 # ============================================================
 
 def load_profile(profile_name):
-
-    path = profile_path(
-        profile_name
-    )
+    path = profile_path(profile_name)
 
     if not path.exists():
-
         print(
             styled(
                 f"Profile not found: {path}",
                 Style.BRIGHT_RED
             )
         )
-
         print()
-
         print(
             "Use "
-            + styled(
-                "--list",
-                Style.BRIGHT_CYAN
-            )
+            + styled("--list", Style.BRIGHT_CYAN)
             + " to see available profiles."
         )
-
         return None
 
     try:
-
         profile = json.loads(
-            path.read_text(
-                encoding="utf-8"
-            )
+            path.read_text(encoding="utf-8")
         )
 
-    except (
-        OSError,
-        json.JSONDecodeError
-    ) as error:
-
+    except (OSError, json.JSONDecodeError) as error:
         print(
             styled(
                 f"Could not load profile: {error}",
                 Style.BRIGHT_RED
             )
         )
-
         return None
 
-    if not isinstance(
-        profile,
-        dict
-    ):
-
-        print(
-            styled(
-                "Invalid profile format.",
-                Style.BRIGHT_RED
-            )
-        )
-
+    if not isinstance(profile, dict):
+        print(styled("Invalid profile format.", Style.BRIGHT_RED))
         return None
 
     if "words" not in profile:
-
         print(
             styled(
                 "Profile does not contain a word list.",
                 Style.BRIGHT_RED
             )
         )
-
         return None
 
     if "records" not in profile:
-
         profile["records"] = {}
 
     if "next_index" not in profile:
-
         profile["next_index"] = 0
 
     words = profile["words"]
 
-    if (
-        not isinstance(words, list)
-        or not words
-    ):
-
+    if not isinstance(words, list) or not words:
         print(
             styled(
                 "Profile contains no words.",
                 Style.BRIGHT_RED
             )
         )
-
         return None
 
-    if not isinstance(
-        profile["next_index"],
-        int
-    ):
+    # Normalize old profiles too. This means profiles created before
+    # lowercase-on-load was added continue to work consistently.
+    normalized_words = [str(word).lower() for word in words]
 
+    old_records = profile["records"]
+    normalized_records = {}
+
+    for old_word, record in old_records.items():
+        normalized_records[str(old_word).lower()] = record
+
+    profile["words"] = normalized_words
+    profile["records"] = normalized_records
+
+    if not isinstance(profile["next_index"], int):
         profile["next_index"] = 0
 
-    profile["next_index"] %= len(words)
+    profile["next_index"] %= len(normalized_words)
 
-    for word in words:
-
+    for word in normalized_words:
         if word not in profile["records"]:
-
             profile["records"][word] = None
 
-    normalize_profile_records(
-        profile
-    )
+    normalize_profile_records(profile)
 
     return profile
 
 
 def save_profile(profile):
-
-    path = profile_path(
-        profile["name"]
-    )
-
-    temp_path = path.with_suffix(
-        ".tmp"
-    )
+    path = profile_path(profile["name"])
+    temp_path = path.with_suffix(".tmp")
 
     temp_path.write_text(
-        json.dumps(
-            profile,
-            indent=4
-        ),
+        json.dumps(profile, indent=4),
         encoding="utf-8"
     )
 
-    temp_path.replace(
-        path
-    )
+    temp_path.replace(path)
 
 
 # ============================================================
@@ -641,50 +454,25 @@ def save_profile(profile):
 # ============================================================
 
 def list_profiles():
-
-    profiles = sorted(
-        Path(".").glob("*.json")
-    )
-
+    profiles = sorted(Path(".").glob("*.json"))
     valid_profiles = []
 
     for path in profiles:
-
         try:
-
             profile = json.loads(
-                path.read_text(
-                    encoding="utf-8"
-                )
+                path.read_text(encoding="utf-8")
             )
 
-        except (
-            OSError,
-            json.JSONDecodeError
-        ):
-
+        except (OSError, json.JSONDecodeError):
             continue
 
-        if not isinstance(
-            profile,
-            dict
-        ):
-
+        if not isinstance(profile, dict):
             continue
 
-        if (
-            "words" not in profile
-            or "records" not in profile
-        ):
-
+        if "words" not in profile or "records" not in profile:
             continue
 
-        valid_profiles.append(
-            (
-                path,
-                profile
-            )
-        )
+        valid_profiles.append((path, profile))
 
     clear_screen()
 
@@ -704,17 +492,10 @@ def list_profiles():
         )
     )
 
-    print(
-        styled(
-            "─" * 64,
-            Style.DIM
-        )
-    )
-
+    print(styled("─" * 64, Style.DIM))
     print()
 
     if not valid_profiles:
-
         print(
             styled(
                 "No profiles found.",
@@ -723,61 +504,34 @@ def list_profiles():
         )
 
         print()
-
-        print(
-            "Create one with:"
-        )
-
+        print("Create one with:")
         print(
             styled(
                 "  burstcli --load mywords.txt",
                 Style.BRIGHT_CYAN
             )
         )
-
         return
 
-    for index, (
-        path,
-        profile
-    ) in enumerate(
+    for index, (path, profile) in enumerate(
         valid_profiles,
         start=1
     ):
-
-        name = profile.get(
-            "name",
-            path.stem
-        )
-
-        words = profile.get(
-            "words",
-            []
-        )
-
-        next_index = profile.get(
-            "next_index",
-            0
-        )
+        name = profile.get("name", path.stem)
+        words = profile.get("words", [])
+        next_index = profile.get("next_index", 0)
 
         print(
             f"  {styled(str(index), Style.DIM)}  "
             f"{styled(name, Style.BRIGHT_WHITE, bold=True)}"
         )
 
-        print(
-            f"      Words   : {len(words)}"
-        )
-
+        print(f"      Words   : {len(words)}")
         print(
             f"      Progress: "
             f"{next_index + 1}/{len(words)}"
         )
-
-        print(
-            f"      File    : {path.name}"
-        )
-
+        print(f"      File    : {path.name}")
         print()
 
     print(
@@ -793,104 +547,58 @@ def list_profiles():
 # ============================================================
 
 def max_wpm_time(word):
-
-    return (
-        len(word)
-        * SECONDS_PER_CHARACTER_AT_MAX_WPM
-    )
+    return len(word) * SECONDS_PER_CHARACTER_AT_MAX_WPM
 
 
-def effective_time(
-    word,
-    actual_seconds
-):
-
-    return max(
-        actual_seconds,
-        max_wpm_time(word)
-    )
+def effective_time(word, actual_seconds):
+    return max(actual_seconds, max_wpm_time(word))
 
 
-def calculate_wpm(
-    word,
-    seconds
-):
-
+def calculate_wpm(word, seconds):
     if seconds <= 0:
-
         return MAX_WPM
 
     minutes = seconds / 60
+    wpm = (len(word) / 5) / minutes
 
-    wpm = (
-        (len(word) / 5)
-        / minutes
-    )
-
-    return min(
-        wpm,
-        MAX_WPM
-    )
+    return min(wpm, MAX_WPM)
 
 
-def normalize_record(
-    word,
-    seconds
-):
-
+def normalize_record(word, seconds):
     return max(
         float(seconds),
         max_wpm_time(word)
     )
 
 
-def normalize_profile_records(
-    profile
-):
-
+def normalize_profile_records(profile):
     records = profile["records"]
 
     for word in profile["words"]:
-
         if word not in records:
-
             records[word] = None
-
             continue
 
         record = records[word]
 
         if record is None:
-
             continue
 
         try:
-
             records[word] = normalize_record(
                 word,
                 float(record)
             )
 
-        except (
-            TypeError,
-            ValueError
-        ):
-
+        except (TypeError, ValueError):
             records[word] = None
 
 
-def is_maxed(
-    word,
-    record
-):
-
+def is_maxed(word, record):
     if record is None:
-
         return False
 
-    threshold = max_wpm_time(
-        word
-    )
+    threshold = max_wpm_time(word)
 
     return math.isclose(
         float(record),
@@ -905,53 +613,24 @@ def is_maxed(
 # ============================================================
 
 def format_ms(seconds):
-
     return f"{seconds * 1000:.1f} ms"
 
 
-def format_wpm(
-    word,
-    seconds
-):
-
-    return (
-        f"{calculate_wpm(word, seconds):.1f}"
-        f" WPM"
-    )
+def format_wpm(word, seconds):
+    return f"{calculate_wpm(word, seconds):.1f} WPM"
 
 
-def progress_bar(
-    current,
-    total,
-    width=PROGRESS_WIDTH
-):
-
+def progress_bar(current, total, width=PROGRESS_WIDTH):
     if total <= 0:
-
         return ""
 
     ratio = current / total
+    ratio = max(0.0, min(ratio, 1.0))
 
-    ratio = max(
-        0.0,
-        min(
-            ratio,
-            1.0
-        )
-    )
+    filled = int(ratio * width)
+    filled = min(filled, width)
 
-    filled = int(
-        ratio * width
-    )
-
-    filled = min(
-        filled,
-        width
-    )
-
-    empty = (
-        width - filled
-    )
+    empty = width - filled
 
     return (
         styled(
@@ -970,37 +649,25 @@ def progress_bar(
 # Word display
 # ============================================================
 
-def render_word_progress(
-    word,
-    typed
-):
+def render_word_progress(word, typed, error=False):
     """
-    Render the target word in one fixed-width field.
-
-    Correctly typed characters:
-        GREEN
-
-    Current character:
-        YELLOW
-
-    Remaining characters:
-        DIM
-
-    The total visible width is always exactly len(word).
+    Correct characters are green.
+    Current character is yellow.
+    Remaining characters are dim.
+    On error, the complete target is red.
     """
+    if error:
+        return styled(
+            word,
+            Style.BRIGHT_RED,
+            bold=True
+        )
 
     output = ""
+    typed_length = len(typed)
 
-    typed_length = len(
-        typed
-    )
-
-    for index, character in enumerate(
-        word
-    ):
-
+    for index, character in enumerate(word):
         if index < typed_length:
-
             output += styled(
                 character,
                 Style.BRIGHT_GREEN,
@@ -1008,7 +675,6 @@ def render_word_progress(
             )
 
         elif index == typed_length:
-
             output += styled(
                 character,
                 Style.BRIGHT_YELLOW,
@@ -1016,7 +682,6 @@ def render_word_progress(
             )
 
         else:
-
             output += styled(
                 character,
                 Style.DIM
@@ -1036,14 +701,12 @@ def render_typing_screen(
     total_words,
     typed,
     elapsed,
-    previous_record
+    previous_record,
+    repeat_required=1,
+    repeat_completed=0,
+    navigation_message=""
 ):
-
     clear_screen()
-
-    # --------------------------------------------------------
-    # Header
-    # --------------------------------------------------------
 
     header_left = styled(
         "BURSTCLI",
@@ -1065,20 +728,12 @@ def render_typing_screen(
 
     header_content = (
         header_left
-        + " " * max(
-            1,
-            header_space
-        )
+        + " " * max(1, header_space)
         + header_right
     )
 
-    print(
-        panel_line(
-            header_content
-        )
-    )
+    print(panel_line(header_content))
 
-    # Profile name.
     print(
         panel_line(
             styled(
@@ -1088,17 +743,9 @@ def render_typing_screen(
         )
     )
 
-    print(
-        BORDER_SEPARATOR
-    )
+    print(BORDER_SEPARATOR)
 
-    # --------------------------------------------------------
-    # Target word
-    # --------------------------------------------------------
-
-    print(
-        panel_line()
-    )
+    print(panel_line())
 
     target_display = styled(
         word,
@@ -1106,56 +753,16 @@ def render_typing_screen(
         bold=True
     )
 
-    print(
-        panel_line(
-            centered_text(
-                target_display
-            )
-        )
-    )
+    print(panel_line(centered_text(target_display)))
+    print(panel_line())
 
-    print(
-        panel_line()
-    )
-
-    # --------------------------------------------------------
-    # Typed progress
-    # --------------------------------------------------------
-
-    typed_display = render_word_progress(
-        word,
-        typed
-    )
-
-    print(
-        panel_line(
-            centered_text(
-                typed_display
-            )
-        )
-    )
-
-    print(
-        panel_line()
-    )
-
-    # --------------------------------------------------------
-    # Timer
-    # --------------------------------------------------------
+    typed_display = render_word_progress(word, typed)
+    print(panel_line(centered_text(typed_display)))
+    print(panel_line())
 
     if elapsed is not None:
-
-        current_time = elapsed
-
-        recognized_time = effective_time(
-            word,
-            current_time
-        )
-
-        current_wpm = calculate_wpm(
-            word,
-            recognized_time
-        )
+        recognized_time = effective_time(word, elapsed)
+        current_wpm = calculate_wpm(word, recognized_time)
 
         stats = (
             f"{format_ms(recognized_time)}"
@@ -1176,7 +783,6 @@ def render_typing_screen(
         )
 
     else:
-
         print(
             panel_line(
                 centered_text(
@@ -1189,29 +795,15 @@ def render_typing_screen(
             )
         )
 
-    print(
-        panel_line()
-    )
-
-    # --------------------------------------------------------
-    # Record
-    # --------------------------------------------------------
+    print(panel_line())
 
     if previous_record is None:
-
         record_text = (
             "Record: "
-            + styled(
-                "--",
-                Style.DIM
-            )
+            + styled("--", Style.DIM)
         )
 
-    elif is_maxed(
-        word,
-        previous_record
-    ):
-
+    elif is_maxed(word, previous_record):
         record_text = (
             "Record: "
             + styled(
@@ -1228,7 +820,6 @@ def render_typing_screen(
         )
 
     else:
-
         record_text = (
             "Record: "
             + styled(
@@ -1238,50 +829,60 @@ def render_typing_screen(
             )
             + "  "
             + styled(
-                format_wpm(
-                    word,
-                    previous_record
-                ),
+                format_wpm(word, previous_record),
                 Style.BRIGHT_WHITE
             )
         )
 
-    print(
-        panel_line(
-            centered_text(
-                record_text
+    print(panel_line(centered_text(record_text)))
+    print(panel_line())
+
+    if repeat_required > 1:
+        repeat_text = (
+            f"Improvement set: "
+            f"{repeat_completed}/{repeat_required}"
+        )
+
+        print(
+            panel_line(
+                centered_text(
+                    styled(
+                        repeat_text,
+                        Style.BRIGHT_YELLOW,
+                        bold=True
+                    )
+                )
             )
         )
-    )
 
-    print(
-        panel_line()
-    )
+        print(panel_line())
 
-    # --------------------------------------------------------
-    # Progress bar
-    # --------------------------------------------------------
+    bar = progress_bar(word_number, total_words)
+    print(panel_line(centered_text(bar)))
+    print(panel_line())
 
-    bar = progress_bar(
-        word_number,
-        total_words
-    )
-
-    print(
-        panel_line(
-            centered_text(
-                bar
+    if navigation_message:
+        print(
+            panel_line(
+                centered_text(
+                    styled(
+                        navigation_message,
+                        Style.BRIGHT_CYAN
+                    )
+                )
             )
         )
-    )
-
-    print(
-        panel_line()
-    )
-
-    # --------------------------------------------------------
-    # Instructions
-    # --------------------------------------------------------
+    else:
+        print(
+            panel_line(
+                centered_text(
+                    styled(
+                        "← →  navigate words",
+                        Style.DIM
+                    )
+                )
+            )
+        )
 
     print(
         panel_line(
@@ -1305,355 +906,28 @@ def render_typing_screen(
         )
     )
 
-    print(
-        BORDER_BOTTOM
-    )
-
+    print(BORDER_BOTTOM)
     sys.stdout.flush()
 
 
 # ============================================================
-# Result screens
+# Word navigation
 # ============================================================
 
-def render_result(
-    profile,
-    word,
-    word_number,
-    total_words,
-    result,
-    previous_record
-):
-
-    clear_screen()
-
-    status = result["status"]
-
-    # --------------------------------------------------------
-    # SUCCESS
-    # --------------------------------------------------------
-
-    if status == "success":
-
-        new_record = result[
-            "new_record"
-        ]
-
-        maxed = is_maxed(
-            word,
-            new_record
-        )
-
-        lines = []
-
-        lines.append(
-            styled(
-                profile["name"],
-                Style.DIM
-            )
-        )
-
-        lines.append("")
-
-        lines.append(
-            centered_text(
-                styled(
-                    f"{word_number}/{total_words}",
-                    Style.DIM
-                )
-            )
-        )
-
-        lines.append("")
-
-        lines.append(
-            centered_text(
-                styled(
-                    "✓ SUCCESS",
-                    Style.BRIGHT_GREEN,
-                    bold=True
-                )
-            )
-        )
-
-        lines.append("")
-
-        lines.append(
-            centered_text(
-                styled(
-                    word,
-                    Style.BRIGHT_WHITE,
-                    bold=True
-                )
-            )
-        )
-
-        lines.append("")
-
-        lines.append(
-            centered_text(
-                styled(
-                    format_ms(new_record),
-                    Style.BRIGHT_GREEN,
-                    bold=True
-                )
-            )
-        )
-
-        lines.append(
-            centered_text(
-                styled(
-                    format_wpm(
-                        word,
-                        new_record
-                    ),
-                    Style.BRIGHT_GREEN,
-                    bold=True
-                )
-            )
-        )
-
-        if maxed:
-
-            lines.append("")
-
-            lines.append(
-                centered_text(
-                    styled(
-                        "★ 500 WPM MAXED ★",
-                        Style.BRIGHT_GREEN,
-                        bold=True
-                    )
-                )
-            )
-
-        lines.append("")
-
-        if word_number == total_words:
-
-            lines.append(
-                centered_text(
-                    styled(
-                        "Dataset complete → word 1",
-                        Style.BRIGHT_CYAN
-                    )
-                )
-            )
-
-        else:
-
-            lines.append(
-                centered_text(
-                    styled(
-                        f"Next → "
-                        f"{word_number + 1}/{total_words}",
-                        Style.BRIGHT_CYAN
-                    )
-                )
-            )
-
-        lines.append("")
-
-        lines.append(
-            centered_text(
-                styled(
-                    "Press any key",
-                    Style.DIM
-                )
-            )
-        )
-
-        print_panel(
-            lines
-        )
-
-        return
-
-    # --------------------------------------------------------
-    # MISTAKE
-    # --------------------------------------------------------
-
-    if status == "mistake":
-
-        lines = [
-            styled(
-                profile["name"],
-                Style.DIM
-            ),
-
-            "",
-
-            centered_text(
-                styled(
-                    f"{word_number}/{total_words}",
-                    Style.DIM
-                )
-            ),
-
-            "",
-
-            centered_text(
-                styled(
-                    "✗ MISTAKE",
-                    Style.BRIGHT_RED,
-                    bold=True
-                )
-            ),
-
-            "",
-
-            centered_text(
-                styled(
-                    "The word must be typed perfectly.",
-                    Style.BRIGHT_RED
-                )
-            ),
-
-            "",
-
-            centered_text(
-                styled(
-                    "Same word again",
-                    Style.BRIGHT_YELLOW
-                )
-            ),
-
-            "",
-
-            centered_text(
-                styled(
-                    "Press any key",
-                    Style.DIM
-                )
-            )
-        ]
-
-        print_panel(
-            lines
-        )
-
-        return
-
-    # --------------------------------------------------------
-    # TOO SLOW
-    # --------------------------------------------------------
-
-    if status == "too_slow":
-
-        recognized_time = result[
-            "effective_time"
-        ]
-
-        lines = [
-            styled(
-                profile["name"],
-                Style.DIM
-            ),
-
-            "",
-
-            centered_text(
-                styled(
-                    f"{word_number}/{total_words}",
-                    Style.DIM
-                )
-            ),
-
-            "",
-
-            centered_text(
-                styled(
-                    "TOO SLOW",
-                    Style.BRIGHT_YELLOW,
-                    bold=True
-                )
-            ),
-
-            "",
-
-            centered_text(
-                styled(
-                    format_ms(
-                        recognized_time
-                    ),
-                    Style.BRIGHT_YELLOW,
-                    bold=True
-                )
-            ),
-
-            centered_text(
-                styled(
-                    format_wpm(
-                        word,
-                        recognized_time
-                    ),
-                    Style.BRIGHT_YELLOW
-                )
-            ),
-
-            ""
-        ]
-
-        if is_maxed(
-            word,
-            previous_record
-        ):
-
-            lines.append(
-                centered_text(
-                    styled(
-                        "Target: "
-                        + format_ms(
-                            max_wpm_time(word)
-                        )
-                        + " / 500 WPM",
-                        Style.BRIGHT_CYAN
-                    )
-                )
-            )
-
-        else:
-
-            lines.append(
-                centered_text(
-                    styled(
-                        "Record: "
-                        + format_ms(
-                            previous_record
-                        )
-                        + " / "
-                        + format_wpm(
-                            word,
-                            previous_record
-                        ),
-                        Style.BRIGHT_CYAN
-                    )
-                )
-            )
-
-        lines.extend([
-            "",
-
-            centered_text(
-                styled(
-                    "Same word again",
-                    Style.BRIGHT_YELLOW
-                )
-            ),
-
-            "",
-
-            centered_text(
-                styled(
-                    "Press any key",
-                    Style.DIM
-                )
-            )
-        ])
-
-        print_panel(
-            lines
-        )
+def move_word(profile, direction):
+    total_words = len(profile["words"])
+
+    if direction == "next":
+        profile["next_index"] = (
+            profile["next_index"] + 1
+        ) % total_words
+
+    elif direction == "previous":
+        profile["next_index"] = (
+            profile["next_index"] - 1
+        ) % total_words
+
+    save_profile(profile)
 
 
 # ============================================================
@@ -1665,14 +939,13 @@ def attempt_word(
     word,
     word_number,
     total_words,
-    previous_record
+    previous_record,
+    repeat_required,
+    repeat_completed
 ):
-
     typed = ""
-
     start_time = None
 
-    # Initial screen.
     render_typing_screen(
         profile,
         word,
@@ -1680,289 +953,155 @@ def attempt_word(
         total_words,
         typed,
         None,
-        previous_record
+        previous_record,
+        repeat_required,
+        repeat_completed
     )
 
     while True:
-
         key = read_key()
 
-        # ----------------------------------------------------
-        # Ctrl+C
-        # ----------------------------------------------------
-
         if key == "\x03":
-
             raise KeyboardInterrupt
 
-        # ----------------------------------------------------
-        # Backspace
-        #
-        # Backspace is deliberately disabled.
-        # It immediately fails the attempt.
-        # ----------------------------------------------------
+        # Arrow keys can navigate only before typing has started.
+        if key in ("\x00", "\xe0"):
+            code = read_key()
 
-        if key == "\x08":
-
-            result = {
-                "status": "mistake",
-                "actual_time": None,
-                "effective_time": None,
-                "new_record": None
+            mapping = {
+                "K": "left",
+                "M": "right",
+                "H": "up",
+                "P": "down",
             }
 
-            render_result(
-                profile,
-                word,
-                word_number,
-                total_words,
-                result,
-                previous_record
-            )
+            direction = mapping.get(code)
 
-            return result
+            if direction in ("left", "up"):
+                if start_time is None and not typed:
+                    return {
+                        "status": "navigate",
+                        "direction": "previous"
+                    }
 
-        # ----------------------------------------------------
-        # Special keys
-        # ----------------------------------------------------
+            elif direction in ("right", "down"):
+                if start_time is None and not typed:
+                    return {
+                        "status": "navigate",
+                        "direction": "next"
+                    }
 
-        if key in (
-            "\x00",
-            "\xe0"
-        ):
-
-            read_key()
-
-            result = {
-                "status": "mistake",
-                "actual_time": None,
-                "effective_time": None,
-                "new_record": None
-            }
-
-            render_result(
-                profile,
-                word,
-                word_number,
-                total_words,
-                result,
-                previous_record
-            )
-
-            return result
-
-        # ----------------------------------------------------
-        # Space = submit
-        # ----------------------------------------------------
-
-        if key == " ":
-
-            if start_time is None:
-
-                result = {
+            # Any other special key is treated as an immediate mistake.
+            if start_time is not None or typed:
+                return {
                     "status": "mistake",
                     "actual_time": None,
-                    "effective_time": None,
-                    "new_record": None
+                    "effective_time": None
                 }
 
-                render_result(
-                    profile,
-                    word,
-                    word_number,
-                    total_words,
-                    result,
-                    previous_record
-                )
+            continue
 
-                return result
+        # Backspace is disabled and immediately fails the attempt.
+        if key == "\x08":
+            return {
+                "status": "mistake",
+                "actual_time": None,
+                "effective_time": None
+            }
+
+        # Space submits.
+        if key == " ":
+            if start_time is None:
+                return {
+                    "status": "mistake",
+                    "actual_time": None,
+                    "effective_time": None
+                }
 
             actual_time = (
-                time.perf_counter()
-                - start_time
+                time.perf_counter() - start_time
             )
 
-            # Incorrect final word.
             if typed != word:
-
-                result = {
+                return {
                     "status": "mistake",
                     "actual_time": actual_time,
                     "effective_time": effective_time(
                         word,
                         actual_time
-                    ),
-                    "new_record": None
+                    )
                 }
-
-                render_result(
-                    profile,
-                    word,
-                    word_number,
-                    total_words,
-                    result,
-                    previous_record
-                )
-
-                return result
 
             recognized_time = effective_time(
                 word,
                 actual_time
             )
 
-            threshold = max_wpm_time(
-                word
-            )
+            threshold = max_wpm_time(word)
 
-            # ------------------------------------------------
-            # First record.
-            # ------------------------------------------------
-
+            # No existing record:
+            # every perfect attempt is a qualifying attempt.
             if previous_record is None:
-
-                result = {
+                return {
                     "status": "success",
                     "actual_time": actual_time,
-                    "effective_time": recognized_time,
-                    "new_record": recognized_time
+                    "effective_time": recognized_time
                 }
 
-                render_result(
-                    profile,
-                    word,
-                    word_number,
-                    total_words,
-                    result,
-                    previous_record
-                )
-
-                return result
-
-            # ------------------------------------------------
-            # Already maxed.
-            # ------------------------------------------------
-
-            if is_maxed(
-                word,
-                previous_record
-            ):
-
-                if actual_time <= (
-                    threshold + EPSILON
-                ):
-
-                    result = {
+            # Existing maxed record:
+            # at/below the 500 WPM threshold qualifies.
+            if is_maxed(word, previous_record):
+                if actual_time <= threshold + EPSILON:
+                    return {
                         "status": "success",
                         "actual_time": actual_time,
-                        "effective_time": threshold,
-                        "new_record": threshold
+                        "effective_time": threshold
                     }
 
-                else:
-
-                    result = {
-                        "status": "too_slow",
-                        "actual_time": actual_time,
-                        "effective_time": recognized_time,
-                        "new_record": None
-                    }
-
-                render_result(
-                    profile,
-                    word,
-                    word_number,
-                    total_words,
-                    result,
-                    previous_record
-                )
-
-                return result
-
-            # ------------------------------------------------
-            # Normal record.
-            # ------------------------------------------------
-
-            if actual_time < previous_record:
-
-                result = {
-                    "status": "success",
-                    "actual_time": actual_time,
-                    "effective_time": recognized_time,
-                    "new_record": recognized_time
-                }
-
-            else:
-
-                result = {
+                return {
                     "status": "too_slow",
                     "actual_time": actual_time,
-                    "effective_time": recognized_time,
-                    "new_record": None
+                    "effective_time": recognized_time
                 }
 
-            render_result(
-                profile,
-                word,
-                word_number,
-                total_words,
-                result,
-                previous_record
-            )
+            # Existing normal record:
+            # the original baseline remains fixed for the entire
+            # repeat set.
+            if actual_time < previous_record:
+                return {
+                    "status": "success",
+                    "actual_time": actual_time,
+                    "effective_time": recognized_time
+                }
 
-            return result
+            return {
+                "status": "too_slow",
+                "actual_time": actual_time,
+                "effective_time": recognized_time
+            }
 
-        # ----------------------------------------------------
         # Start timer on first character.
-        # ----------------------------------------------------
-
         if start_time is None:
-
             start_time = time.perf_counter()
-
-        # ----------------------------------------------------
-        # Check character.
-        # ----------------------------------------------------
 
         position = len(typed)
 
-        if (
-            position >= len(word)
-            or key != word[position]
-        ):
-
+        # Wrong character immediately fails and retries without a flash screen.
+        if position >= len(word) or key != word[position]:
             actual_time = (
-                time.perf_counter()
-                - start_time
+                time.perf_counter() - start_time
             )
 
-            result = {
+            return {
                 "status": "mistake",
                 "actual_time": actual_time,
-                "effective_time": None,
-                "new_record": None
+                "effective_time": None
             }
-
-            render_result(
-                profile,
-                word,
-                word_number,
-                total_words,
-                result,
-                previous_record
-            )
-
-            return result
 
         typed += key
 
-        # ----------------------------------------------------
-        # Live UI update.
-        # ----------------------------------------------------
-
         elapsed = (
-            time.perf_counter()
-            - start_time
+            time.perf_counter() - start_time
         )
 
         render_typing_screen(
@@ -1972,7 +1111,9 @@ def attempt_word(
             total_words,
             typed,
             elapsed,
-            previous_record
+            previous_record,
+            repeat_required,
+            repeat_completed
         )
 
 
@@ -1984,96 +1125,174 @@ def train_word(
     profile,
     word,
     word_number,
-    total_words
+    total_words,
+    repeat_required
 ):
+    previous_record = profile["records"].get(word)
 
-    previous_record = (
-        profile["records"].get(word)
-    )
+    # These are the successful qualifying times for this word.
+    repeat_times = []
 
-    while True:
-
+    while len(repeat_times) < repeat_required:
         result = attempt_word(
             profile,
             word,
             word_number,
             total_words,
-            previous_record
+            previous_record,
+            repeat_required,
+            len(repeat_times)
         )
 
-        # ----------------------------------------------------
-        # Mistake / too slow.
-        # ----------------------------------------------------
+        if result["status"] == "navigate":
+            return result
 
         if result["status"] != "success":
-
-            wait_for_key()
-
+            # The failed attempt is discarded. The repeat count
+            # remains unchanged, and the same word immediately resets.
             continue
 
-        # ----------------------------------------------------
-        # Successful completion.
-        # ----------------------------------------------------
-
-        new_record = result[
-            "new_record"
-        ]
-
-        profile["records"][word] = (
-            new_record
+        repeat_times.append(
+            result["effective_time"]
         )
 
-        # ----------------------------------------------------
-        # Advance immediately.
-        # ----------------------------------------------------
+    # Store the arithmetic mean of the successful attempts.
+    average_time = sum(repeat_times) / len(repeat_times)
 
-        next_index = (
-            profile["next_index"] + 1
-        ) % total_words
+    # The 500 WPM ceiling must still apply to the stored average.
+    average_time = max(
+        average_time,
+        max_wpm_time(word)
+    )
 
-        profile["next_index"] = (
-            next_index
-        )
+    profile["records"][word] = average_time
 
-        save_profile(
-            profile
-        )
+    # Advance immediately after the repeat set is complete.
+    profile["next_index"] = (
+        profile["next_index"] + 1
+    ) % total_words
 
-        wait_for_key()
+    save_profile(profile)
 
-        return
+    return {
+        "status": "success",
+        "record": average_time
+    }
 
 
 # ============================================================
 # Trainer
 # ============================================================
 
-def run_trainer(profile):
-
+def run_trainer(profile, repeat_required):
     words = profile["words"]
-
     total_words = len(words)
 
     while True:
-
         index = profile["next_index"]
-
         word = words[index]
 
-        train_word(
+        result = train_word(
             profile,
             word,
             index + 1,
-            total_words
+            total_words,
+            repeat_required
         )
+
+        if result["status"] == "navigate":
+            if result["direction"] == "previous":
+                move_word(profile, "previous")
+            else:
+                move_word(profile, "next")
 
 
 # ============================================================
-# CLI
+# CLI parsing
+# ============================================================
+
+def parse_repeat(value):
+    try:
+        repeat = int(value)
+
+    except ValueError:
+        raise ValueError(
+            "--repeat must be a positive integer."
+        )
+
+    if repeat < 1:
+        raise ValueError(
+            "--repeat must be a positive integer."
+        )
+
+    return repeat
+
+
+def parse_profile_args(args):
+    if not args:
+        raise ValueError("Missing profile name.")
+
+    profile_name = None
+    repeat_required = 1
+
+    index = 0
+
+    while index < len(args):
+        argument = args[index]
+
+        if argument == "--repeat":
+            if index + 1 >= len(args):
+                raise ValueError(
+                    "--repeat requires a number."
+                )
+
+            repeat_required = parse_repeat(
+                args[index + 1]
+            )
+
+            index += 2
+            continue
+
+        if argument.startswith("--repeat="):
+            repeat_required = parse_repeat(
+                argument.split("=", 1)[1]
+            )
+
+            index += 1
+            continue
+
+        if argument == "--profile":
+            if index + 1 >= len(args):
+                raise ValueError(
+                    "--profile requires a profile name."
+                )
+
+            profile_name = args[index + 1]
+            index += 2
+            continue
+
+        if argument.startswith("--profile="):
+            profile_name = argument.split("=", 1)[1]
+            index += 1
+            continue
+
+        raise ValueError(
+            f"Unknown argument: {argument}"
+        )
+
+    if not profile_name:
+        raise ValueError(
+            "--profile requires a profile name."
+        )
+
+    return profile_name, repeat_required
+
+
+# ============================================================
+# Usage
 # ============================================================
 
 def print_usage():
-
     print(
         styled(
             "BURSTCLI",
@@ -2083,11 +1302,7 @@ def print_usage():
     )
 
     print()
-
-    print(
-        "Usage:"
-    )
-
+    print("Usage:")
     print()
 
     print(
@@ -2096,23 +1311,18 @@ def print_usage():
             Style.BRIGHT_WHITE
         )
     )
-
-    print(
-        "      Create a profile from a dataset."
-    )
+    print("      Create a profile from a dataset.")
 
     print()
 
     print(
         styled(
-            "  burstcli --profile <name>",
+            "  burstcli --profile <name> [--repeat N]",
             Style.BRIGHT_WHITE
         )
     )
-
-    print(
-        "      Run a profile."
-    )
+    print("      Run a profile.")
+    print("      --repeat defaults to 1.")
 
     print()
 
@@ -2122,16 +1332,10 @@ def print_usage():
             Style.BRIGHT_WHITE
         )
     )
-
-    print(
-        "      List profiles."
-    )
+    print("      List profiles.")
 
     print()
-
-    print(
-        "Examples:"
-    )
+    print("Examples:")
 
     print(
         styled(
@@ -2147,98 +1351,83 @@ def print_usage():
         )
     )
 
+    print(
+        styled(
+            "  burstcli --profile programming --repeat 4",
+            Style.BRIGHT_CYAN
+        )
+    )
+
 
 # ============================================================
 # Main
 # ============================================================
 
 def main():
-
     enable_ansi()
 
     args = sys.argv[1:]
 
     if not args:
-
         print_usage()
-
         return
 
-    # --------------------------------------------------------
     # --list
-    # --------------------------------------------------------
-
     if args[0] == "--list":
-
         if len(args) != 1:
-
-            print(
-                "Usage: burstcli --list"
-            )
-
+            print("Usage: burstcli --list")
             return
 
         list_profiles()
-
         return
 
-    # --------------------------------------------------------
     # --load
-    # --------------------------------------------------------
-
     if args[0] == "--load":
-
         if len(args) != 2:
-
             print(
                 "Usage: "
                 "burstcli --load <dataset>"
             )
-
             return
 
-        create_profile_from_dataset(
-            args[1]
-        )
-
+        create_profile_from_dataset(args[1])
         return
 
-    # --------------------------------------------------------
     # --profile
-    # --------------------------------------------------------
-
     if args[0] == "--profile":
-
-        if len(args) != 2:
-
-            print(
-                "Usage: "
-                "burstcli --profile <name>"
+        try:
+            profile_name, repeat_required = parse_profile_args(
+                args
             )
 
+        except ValueError as error:
+            print(
+                styled(
+                    f"Error: {error}",
+                    Style.BRIGHT_RED
+                )
+            )
+            print()
+            print_usage()
             return
 
-        profile = load_profile(
-            args[1]
-        )
+        profile = load_profile(profile_name)
 
         if profile is None:
-
             return
 
-        # Save normalized records.
-        save_profile(
-            profile
-        )
+        # Save normalized records/words if needed.
+        save_profile(profile)
 
         clear_screen()
 
-        total_words = len(
-            profile["words"]
-        )
+        total_words = len(profile["words"])
+        current_word = profile["next_index"] + 1
 
-        current_word = (
-            profile["next_index"] + 1
+        repeat_text = (
+            f"REPEAT: {repeat_required}"
+            if repeat_required > 1
+            else "REPEAT: 1"
         )
 
         lines = [
@@ -2249,9 +1438,7 @@ def main():
                     bold=True
                 )
             ),
-
             "",
-
             centered_text(
                 styled(
                     profile["name"],
@@ -2259,9 +1446,7 @@ def main():
                     bold=True
                 )
             ),
-
             "",
-
             centered_text(
                 "Resume: "
                 + styled(
@@ -2270,42 +1455,45 @@ def main():
                     bold=True
                 )
             ),
-
             "",
-
+            centered_text(
+                styled(
+                    repeat_text,
+                    Style.BRIGHT_YELLOW
+                    if repeat_required > 1
+                    else Style.DIM,
+                    bold=repeat_required > 1
+                )
+            ),
+            "",
             centered_text(
                 styled(
                     "500 WPM CEILING",
                     Style.DIM
                 )
             ),
-
             "",
-
             centered_text(
                 styled(
-                    "Press any key to start",
+                    "← → navigate   |   any key to start",
                     Style.DIM
                 )
             )
         ]
 
-        print_panel(
-            lines
-        )
+        print_panel(lines)
 
         try:
-
             wait_for_key()
 
             hide_cursor()
 
             run_trainer(
-                profile
+                profile,
+                repeat_required
             )
 
         except KeyboardInterrupt:
-
             clear_screen()
 
             print(
@@ -2326,15 +1514,11 @@ def main():
             )
 
         finally:
-
             show_cursor()
 
         return
 
-    # --------------------------------------------------------
     # Unknown command.
-    # --------------------------------------------------------
-
     print(
         styled(
             f"Unknown command: {args[0]}",
@@ -2343,7 +1527,6 @@ def main():
     )
 
     print()
-
     print_usage()
 
 
@@ -2352,5 +1535,4 @@ def main():
 # ============================================================
 
 if __name__ == "__main__":
-
     main()
