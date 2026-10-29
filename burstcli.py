@@ -22,6 +22,9 @@ UI_WIDTH = 64
 INNER_WIDTH = UI_WIDTH - 2
 PROGRESS_WIDTH = 48
 
+# Most recent complete word submission, kept for the current session.
+LAST_ATTEMPT = None
+
 
 
 # ============================================================
@@ -450,6 +453,71 @@ def save_profile(profile):
 
 
 # ============================================================
+# Profile statistics and ordering
+# ============================================================
+
+def sort_profile_slowest_first(profile):
+    """Sort words by weakest saved record while preserving word/record pairing."""
+    words = profile["words"]
+    records = profile["records"]
+    original_positions = {word: i for i, word in enumerate(words)}
+
+    def sort_key(word):
+        record = records.get(word)
+        # Unrecorded words come first; among recorded words, longer time is weaker.
+        if record is None:
+            return (0, 0.0, original_positions[word])
+        return (1, -float(record), original_positions[word])
+
+    profile["words"] = sorted(words, key=sort_key)
+    profile["next_index"] = 0
+    save_profile(profile)
+
+
+def print_profile_stats(profile):
+    words = profile["words"]
+    records = profile["records"]
+    recorded = [(word, records.get(word)) for word in words if records.get(word) is not None]
+    unrecorded = [word for word in words if records.get(word) is None]
+    maxed = [(word, seconds) for word, seconds in recorded if is_maxed(word, seconds)]
+    non_maxed = [(word, seconds) for word, seconds in recorded if not is_maxed(word, seconds)]
+    speeds = [(word, calculate_wpm(word, float(seconds))) for word, seconds in recorded]
+
+    print(styled(f"BURSTCLI STATS: {profile.get('name', 'profile')}", Style.BRIGHT_CYAN, bold=True))
+    print("─" * 64)
+    print(f"Total words: {len(words)}")
+    print(f"Words with records: {len(recorded)}")
+    print(f"Words without records: {len(unrecorded)}")
+    print(f"Maxed out at the 500 WPM ceiling: {len(maxed)}")
+    if speeds:
+        # Exclude maxed records: their true speed is unknown due to the cap.
+        average_values = [calculate_wpm(word, float(seconds)) for word, seconds in non_maxed]
+        if average_values:
+            print(f"Average recorded speed (excluding maxed words): {sum(average_values) / len(average_values):.1f} WPM")
+        else:
+            print("Average recorded speed (excluding maxed words): N/A")
+    else:
+        print("Average recorded speed: N/A")
+
+    print("\n10 fastest words (not maxed):")
+    for word, seconds in sorted(non_maxed, key=lambda item: calculate_wpm(item[0], float(item[1])), reverse=True)[:10]:
+        print(f"  {word:<24} {calculate_wpm(word, float(seconds)):7.1f} WPM")
+    if not non_maxed:
+        print("  None")
+
+    print("\n10 slowest recorded words:")
+    for word, seconds in sorted(recorded, key=lambda item: calculate_wpm(item[0], float(item[1])))[:10]:
+        suffix = "  MAXED" if is_maxed(word, seconds) else ""
+        print(f"  {word:<24} {calculate_wpm(word, float(seconds)):7.1f} WPM{suffix}")
+    if not recorded:
+        print("  None")
+
+    if unrecorded:
+        print("\nWords without records:")
+        print("  " + ", ".join(unrecorded))
+
+
+# ============================================================
 # Profile listing
 # ============================================================
 
@@ -706,7 +774,8 @@ def render_typing_screen(
     repeat_completed=0,
     navigation_message=""
 ):
-    clear_screen()
+    # Redraw in place. Clearing the whole screen on every keypress causes flicker.
+    move_cursor_home()
 
     header_left = styled(
         "BURSTCLI",
@@ -837,6 +906,16 @@ def render_typing_screen(
     print(panel_line(centered_text(record_text)))
     print(panel_line())
 
+    if LAST_ATTEMPT is None:
+        previous_text = "Previous: -- WPM"
+    else:
+        last_word = LAST_ATTEMPT["word"]
+        last_seconds = LAST_ATTEMPT["seconds"]
+        previous_text = "Previous: " + format_wpm(last_word, last_seconds)
+
+    print(panel_line(centered_text(styled(previous_text, Style.BRIGHT_CYAN, bold=True))))
+    print(panel_line())
+
     if repeat_required > 1:
         repeat_text = (
             f"Improvement set: "
@@ -914,19 +993,16 @@ def render_typing_screen(
 # Word navigation
 # ============================================================
 
-def move_word(profile, direction):
+def move_word(profile, direction, unlocked_index):
+    """Navigate within already unlocked words; never skip ahead."""
     total_words = len(profile["words"])
-
+    current = profile["next_index"]
     if direction == "next":
-        profile["next_index"] = (
-            profile["next_index"] + 1
-        ) % total_words
-
+        if current < min(unlocked_index, total_words - 1):
+            profile["next_index"] = current + 1
     elif direction == "previous":
-        profile["next_index"] = (
-            profile["next_index"] - 1
-        ) % total_words
-
+        if current > 0:
+            profile["next_index"] = current - 1
     save_profile(profile)
 
 
@@ -1036,6 +1112,12 @@ def attempt_word(
                 word,
                 actual_time
             )
+
+            global LAST_ATTEMPT
+            LAST_ATTEMPT = {
+                "word": word,
+                "seconds": recognized_time,
+            }
 
             threshold = max_wpm_time(word)
 
@@ -1168,9 +1250,7 @@ def train_word(
     profile["records"][word] = average_time
 
     # Advance immediately after the repeat set is complete.
-    profile["next_index"] = (
-        profile["next_index"] + 1
-    ) % total_words
+    profile["next_index"] = min(profile["next_index"] + 1, total_words - 1)
 
     save_profile(profile)
 
@@ -1187,24 +1267,58 @@ def train_word(
 def run_trainer(profile, repeat_required):
     words = profile["words"]
     total_words = len(words)
+    # The saved position is the current word. Only words reached through
+    # sequential completion become unlocked for forward navigation.
+    # Every session starts at the first word in the current order. A complete
+    # pass is required before the profile is reordered.
+    profile["next_index"] = 0
+    save_profile(profile)
+    unlocked_index = 0
+    completed_indices = set()
 
     while True:
         index = profile["next_index"]
         word = words[index]
-
         result = train_word(
-            profile,
-            word,
-            index + 1,
-            total_words,
-            repeat_required
+            profile, word, index + 1, total_words, repeat_required
         )
 
         if result["status"] == "navigate":
-            if result["direction"] == "previous":
-                move_word(profile, "previous")
-            else:
-                move_word(profile, "next")
+            move_word(profile, result["direction"], unlocked_index)
+            continue
+
+        # Mark a word as completed in this pass. Forward navigation only
+        # unlocks the next word when the current frontier is completed.
+        completed_indices.add(index)
+        if index == unlocked_index and unlocked_index < total_words - 1:
+            unlocked_index += 1
+
+        # Reorder only after every index has been completed in this pass.
+        if len(completed_indices) == total_words:
+            sort_profile_slowest_first(profile)
+            return "complete"
+
+        # train_word advances next_index after a successful word; when the
+        # user revisits an earlier word, continue from the resulting position.
+
+
+def end_of_run_menu(profile_name, repeat_required, return_to_menu):
+    while True:
+        clear_screen()
+        print(styled("DATASET COMPLETE", Style.BRIGHT_GREEN, bold=True))
+        print(styled(profile_name, Style.BRIGHT_CYAN))
+        print("\nProfile sorted by weakest recorded speed and saved.")
+        print("\n  R. Repeat this profile")
+        print("  M. Main menu")
+        print("  Q. Quit")
+        choice = input("Select an action: ").strip().lower()
+        if choice == "r":
+            return "repeat"
+        if choice == "m":
+            return "menu"
+        if choice == "q":
+            return "quit"
+        print(styled("Choose R, M, or Q.", Style.BRIGHT_RED))
 
 
 # ============================================================
@@ -1335,6 +1449,10 @@ def print_usage():
     print("      List profiles.")
 
     print()
+    print(styled("  burstcli --stats <profile>", Style.BRIGHT_WHITE))
+    print("      Print profile statistics to the terminal.")
+
+    print()
     print("Examples:")
 
     print(
@@ -1360,6 +1478,192 @@ def print_usage():
 
 
 # ============================================================
+# Interactive menu
+# ============================================================
+
+def discover_profiles():
+    """Return valid profile files in the current working directory."""
+    found = []
+    for path in sorted(Path(".").glob(f"*{PROFILE_EXTENSION}"), key=lambda item: item.stem.lower()):
+        try:
+            profile = json.loads(path.read_text(encoding="utf-8"))
+        except (OSError, json.JSONDecodeError):
+            continue
+        if not isinstance(profile, dict):
+            continue
+        if not isinstance(profile.get("words"), list) or not profile.get("words"):
+            continue
+        if not isinstance(profile.get("records", {}), dict):
+            continue
+        found.append((path, profile))
+    return found
+
+
+def choose_dataset_file():
+    """Open a native file picker for a new word dataset."""
+    try:
+        import tkinter as tk
+        from tkinter import filedialog
+
+        root = tk.Tk()
+        root.withdraw()
+        try:
+            root.attributes("-topmost", True)
+            selected = filedialog.askopenfilename(
+                parent=root,
+                title="Select a BurstCLI word dataset",
+                filetypes=[
+                    ("Text datasets", "*.txt *.csv *.dat"),
+                    ("All files", "*.*"),
+                ],
+            )
+        finally:
+            root.destroy()
+        return Path(selected) if selected else None
+    except Exception as error:
+        print(styled(f"Could not open file picker: {error}", Style.BRIGHT_RED))
+        input("Press Enter to return to the menu...")
+        return None
+
+
+def launch_profile(profile_name, repeat_required, return_to_menu=False):
+    """Load and run a profile; return to menu after Ctrl+C when launched there."""
+    global LAST_ATTEMPT
+    profile = load_profile(profile_name)
+    if profile is None:
+        if return_to_menu:
+            input("Press Enter to return to the menu...")
+        return "menu" if return_to_menu else "quit"
+
+    save_profile(profile)
+    while True:
+        clear_screen()
+        total_words = len(profile["words"])
+        current_word = profile["next_index"] + 1
+        lines = [
+            centered_text(styled("BURSTCLI", Style.BRIGHT_CYAN, bold=True)),
+            "",
+            centered_text(styled(profile["name"], Style.BRIGHT_WHITE, bold=True)),
+            "",
+            centered_text("Resume: " + styled(f"{current_word}/{total_words}", Style.BRIGHT_CYAN, bold=True)),
+            "",
+            centered_text(styled(f"REPEAT: {repeat_required}", Style.BRIGHT_YELLOW if repeat_required > 1 else Style.DIM,
+                                 bold=repeat_required > 1)),
+            "",
+            centered_text(styled("500 WPM CEILING", Style.DIM)),
+            "",
+            centered_text(styled("← → navigate   |   any key to start", Style.DIM)),
+        ]
+        print_panel(lines)
+
+        try:
+            wait_for_key()
+            clear_screen()
+            hide_cursor()
+            outcome = run_trainer(profile, repeat_required)
+        except KeyboardInterrupt:
+            show_cursor()
+            clear_screen()
+            print(styled("BURSTCLI", Style.BRIGHT_CYAN, bold=True))
+            print()
+            print(styled("Returned to menu." if return_to_menu else "Exited.", Style.DIM))
+            if return_to_menu:
+                input("Press Enter to continue...")
+                return "menu"
+            return "quit"
+        finally:
+            show_cursor()
+
+        if outcome == "complete":
+            action = end_of_run_menu(profile_name, repeat_required, return_to_menu)
+            if action == "repeat":
+                # Sorting reset the index to zero; each repeat begins with the weakest word.
+                profile = load_profile(profile_name)
+                if profile is None:
+                    return "menu" if return_to_menu else "quit"
+                continue
+            if action == "menu":
+                return "menu"
+            return "quit"
+
+
+def interactive_menu():
+    """Main menu shown when BurstCLI is launched without arguments."""
+    repeat_required = 1
+
+    while True:
+        clear_screen()
+        print(styled("BURSTCLI", Style.BRIGHT_CYAN, bold=True))
+        print(styled("─" * 48, Style.DIM))
+        print(f"Repeat count: {styled(str(repeat_required), Style.BRIGHT_YELLOW, bold=True)}")
+        print()
+
+        profiles = discover_profiles()
+        if profiles:
+            print(styled("PROFILES", Style.BRIGHT_WHITE, bold=True))
+            for number, (path, profile) in enumerate(profiles, start=1):
+                name = str(profile.get("name", path.stem))
+                words = profile.get("words", [])
+                next_index = profile.get("next_index", 0)
+                if not isinstance(next_index, int):
+                    next_index = 0
+                next_index %= len(words)
+                print(f"  {number}. {styled(name, Style.BRIGHT_CYAN, bold=True)}  ({next_index + 1}/{len(words)} words)")
+        else:
+            print(styled("No profiles found yet.", Style.DIM))
+
+        print()
+        print("  L. Load a new dataset…")
+        print("  R. Change repeat count")
+        print("  Q. Quit")
+        print()
+        choice = input("Select a profile or action: ").strip()
+
+        if choice.lower() == "q":
+            return
+
+        if choice.lower() == "r":
+            raw = input("Successful attempts required per word [1]: ").strip()
+            if not raw:
+                continue
+            try:
+                repeat_required = parse_repeat(raw)
+            except ValueError as error:
+                print(styled(str(error), Style.BRIGHT_RED))
+                input("Press Enter to continue...")
+            continue
+
+        if choice.lower() == "l":
+            dataset_path = choose_dataset_file()
+            if dataset_path is None:
+                continue
+            created = create_profile_from_dataset(dataset_path)
+            if created:
+                print()
+                print("Dataset loaded. Select its profile from the menu to start training.")
+                input("Press Enter to return to the menu...")
+            continue
+
+        try:
+            selected_number = int(choice)
+        except ValueError:
+            print(styled("Choose a listed profile number, L, R, or Q.", Style.BRIGHT_RED))
+            input("Press Enter to continue...")
+            continue
+
+        # Refresh the list to avoid using stale menu indices.
+        profiles = discover_profiles()
+        if selected_number < 1 or selected_number > len(profiles):
+            print(styled("That profile number is not available.", Style.BRIGHT_RED))
+            input("Press Enter to continue...")
+            continue
+
+        profile_path_value, profile_data = profiles[selected_number - 1]
+        profile_name = str(profile_data.get("name", profile_path_value.stem))
+        launch_profile(profile_name, repeat_required, return_to_menu=True)
+
+
+# ============================================================
 # Main
 # ============================================================
 
@@ -1369,7 +1673,7 @@ def main():
     args = sys.argv[1:]
 
     if not args:
-        print_usage()
+        interactive_menu()
         return
 
     # --list
@@ -1393,129 +1697,27 @@ def main():
         create_profile_from_dataset(args[1])
         return
 
+    # --stats
+    if args[0] == "--stats":
+        if len(args) != 2:
+            print("Usage: burstcli --stats <profile>")
+            return
+        profile = load_profile(args[1])
+        if profile is not None:
+            print_profile_stats(profile)
+        return
+
     # --profile
     if args[0] == "--profile":
         try:
-            profile_name, repeat_required = parse_profile_args(
-                args
-            )
-
+            profile_name, repeat_required = parse_profile_args(args)
         except ValueError as error:
-            print(
-                styled(
-                    f"Error: {error}",
-                    Style.BRIGHT_RED
-                )
-            )
+            print(styled(f"Error: {error}", Style.BRIGHT_RED))
             print()
             print_usage()
             return
 
-        profile = load_profile(profile_name)
-
-        if profile is None:
-            return
-
-        # Save normalized records/words if needed.
-        save_profile(profile)
-
-        clear_screen()
-
-        total_words = len(profile["words"])
-        current_word = profile["next_index"] + 1
-
-        repeat_text = (
-            f"REPEAT: {repeat_required}"
-            if repeat_required > 1
-            else "REPEAT: 1"
-        )
-
-        lines = [
-            centered_text(
-                styled(
-                    "BURSTCLI",
-                    Style.BRIGHT_CYAN,
-                    bold=True
-                )
-            ),
-            "",
-            centered_text(
-                styled(
-                    profile["name"],
-                    Style.BRIGHT_WHITE,
-                    bold=True
-                )
-            ),
-            "",
-            centered_text(
-                "Resume: "
-                + styled(
-                    f"{current_word}/{total_words}",
-                    Style.BRIGHT_CYAN,
-                    bold=True
-                )
-            ),
-            "",
-            centered_text(
-                styled(
-                    repeat_text,
-                    Style.BRIGHT_YELLOW
-                    if repeat_required > 1
-                    else Style.DIM,
-                    bold=repeat_required > 1
-                )
-            ),
-            "",
-            centered_text(
-                styled(
-                    "500 WPM CEILING",
-                    Style.DIM
-                )
-            ),
-            "",
-            centered_text(
-                styled(
-                    "← → navigate   |   any key to start",
-                    Style.DIM
-                )
-            )
-        ]
-
-        print_panel(lines)
-
-        try:
-            wait_for_key()
-
-            hide_cursor()
-
-            run_trainer(
-                profile,
-                repeat_required
-            )
-
-        except KeyboardInterrupt:
-            clear_screen()
-
-            print(
-                styled(
-                    "BURSTCLI",
-                    Style.BRIGHT_CYAN,
-                    bold=True
-                )
-            )
-
-            print()
-
-            print(
-                styled(
-                    "Exited.",
-                    Style.DIM
-                )
-            )
-
-        finally:
-            show_cursor()
-
+        launch_profile(profile_name, repeat_required, return_to_menu=False)
         return
 
     # Unknown command.

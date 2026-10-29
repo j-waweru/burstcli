@@ -6,21 +6,13 @@ A Windows terminal typing trainer designed to improve **burst typing speed** thr
 
 ## Features
 
-* Word-by-word personal speed records
-* Strict character-by-character accuracy
-* Failed attempts reset immediately
-* Backspace disabled
-* Automatic progression between words
-* Repeat challenges for breaking records multiple times
-* Persistent JSON profiles
-* Resume from the last completed word
-* Continuous dataset looping
-* Live WPM and typing feedback
-* Arrow-key word navigation
-* 500 WPM recognition ceiling
-* Windows terminal UI with ANSI rendering
-* Multiple independent word profiles
-* Automatic lowercase conversion for loaded datasets
+- Windows terminal UI with ANSI rendering
+- Word-by-word personal speed records
+- Persistent JSON profiles
+- Live WPM and typing feedback
+- Profile statistics with `--stats`
+- Slowest-first word ordering after completing a full run
+- Configurable successful attempts per word with `--repeat`
 
 ## Burst Speed Training
 
@@ -28,29 +20,9 @@ BurstCLI is built around **short, fast typing bursts** rather than long typing t
 
 Each word becomes an individual speed challenge. To improve a recorded time, you must type the word perfectly and beat the existing record. **A space at the end of the word is required to submit the record.**
 
-You can require multiple improvements with `--repeat`:
+You can require multiple successful improvements with `--repeat`. With `--repeat 4`, the current word must be successfully improved **four times** before moving on. Failed or slower attempts do not count. The four successful times are averaged and saved as the new record. For words without an existing record, four successful attempts are averaged to create the initial record.
 
-```bash
-python burstcli.py --profile sample --repeat 4
-```
-
-With `--repeat 4`, the current word must be successfully improved **four times** before moving on. Failed or slower attempts do not count.
-
-The four successful times are averaged and saved as the new record.
-
-For words without an existing record, four successful attempts are simply averaged to create the initial record.
-
-## 500 WPM Ceiling
-
-BurstCLI uses a 500 WPM recognition ceiling to prevent extremely short words from producing unrealistic records.
-
-The minimum recognized time is:
-
-```text
-characters × 0.024 seconds
-```
-
-Times faster than this threshold are normalized to the 500 WPM limit.
+BurstCLI uses a **500 WPM recognition ceiling** to prevent extremely short words from producing unrealistic records. WPM is capped at 500, and records that exceed the ceiling are normalized to the equivalent minimum time.
 
 ## Installation
 
@@ -61,26 +33,26 @@ cd burstcli
 
 Requires **Python 3.10+** and currently uses only the Python standard library.
 
-## Quick Start
+BurstCLI includes a `samplewords` directory with ready-to-load datasets. To start, try `english200`.
 
-BurstCLI includes `sample.words`, containing the **top 200 English words** as a ready-to-use sample dataset.
+## Usage
 
-Create a profile:
+Create a profile from a dataset:
 
 ```bash
-python burstcli.py --load sample.words
+python burstcli.py --load samplewords/english200.words
 ```
 
-Run it:
+Run a profile:
 
 ```bash
-python burstcli.py --profile sample
+python burstcli.py --profile english200
 ```
 
-Or require four successful speed improvements per word:
+Require four successful attempts per word:
 
 ```bash
-python burstcli.py --profile sample --repeat 4
+python burstcli.py --profile english200 --repeat 4
 ```
 
 List available profiles:
@@ -89,75 +61,43 @@ List available profiles:
 python burstcli.py --list
 ```
 
+Show statistics for a profile:
+
+```bash
+python burstcli.py --stats english200
+```
+
+The statistics command reads the profile and prints a report directly in the terminal, including the number of recorded and unrecorded words, the number of words at the 500 WPM ceiling, the average WPM for recorded words below the ceiling, the 10 fastest non-maxed words, the 10 slowest recorded words, and unrecorded words. The average excludes unrecorded words and words at the ceiling because their exact speed cannot be determined.
+
 Datasets can contain words separated by spaces, commas, or newlines. Loaded words are automatically converted to lowercase.
+
+Each profile's progress and word records are saved automatically.
+
 
 ## Controls
 
-| Key         | Action                      |
-| ----------- | --------------------------- |
-| Characters  | Type the displayed word     |
-| `Space`     | Submit the word             |
-| `← → ↑ ↓`   | Navigate between words      |
-| `Backspace` | Disabled; fails the attempt |
-| `Ctrl+C`    | Exit                        |
-
-## Profiles
-
-Each dataset becomes a JSON profile containing the words, personal records, and current position.
-
-Example:
-
-```json
-{
-    "name": "sample",
-    "dataset": "sample.words",
-    "words": [
-        "the",
-        "be",
-        "to"
-    ],
-    "records": {
-        "the": null,
-        "be": null,
-        "to": null
-    },
-    "next_index": 0
-}
-```
-
-Progress is saved automatically, allowing BurstCLI to resume where you left off.
-
-## Project Goals
-
-BurstCLI is intentionally small and focused on:
-
-* Improving burst typing speed
-* Building faster recognition of common words
-* Strict accuracy
-* Personal speed records
-* Repeated speed improvement
-* Fast feedback
-* Simple persistent storage
-* Terminal-first operation
+| Key | Action |
+| --- | --- |
+| Characters | Type the displayed word |
+| `Space` | Submit the word |
+| `←` / `→` / `↑` / `↓` | Navigate between available words; forward navigation is limited to unlocked progress |
+| `Backspace` | Disabled; a backspace attempt fails the current attempt |
+| `Ctrl+C` | Return to the main menu when launched from the menu; otherwise interrupt the current run |
 
 ## Current Limitations
 
-* Primarily designed for Windows terminals
-* No graphical interface
-* No cloud synchronization
-* No user accounts
-* No multiplayer
-* No analytics dashboard
-* Records are keyed by word
+- Windows only
+- No graphical interface
+- No cloud synchronization
+- No user accounts
+- No multiplayer
 
-## Coming Soon 
+## Coming Soon
 
-Support for linux terminals.
+- Rewrite in Rust
+- Linux support
+- Support for quotes and code
 
 ## License
 
 No license has been selected yet.
-
----
-
-**BurstCLI** — train faster bursts, one word at a time.
