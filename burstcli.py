@@ -18,6 +18,11 @@ EPSILON = 1e-9
 
 PROFILE_EXTENSION = ".json"
 
+if getattr(sys, "frozen", False):
+    APP_DIR = Path(sys.executable).resolve().parent
+else:
+    APP_DIR = Path(__file__).resolve().parent
+
 UI_WIDTH = 64
 INNER_WIDTH = UI_WIDTH - 2
 PROGRESS_WIDTH = 48
@@ -215,7 +220,12 @@ def print_panel(lines):
 # ============================================================
 
 def profile_path(profile_name):
-    return Path(f"{profile_name}{PROFILE_EXTENSION}")
+    candidate = Path(profile_name)
+    if candidate.suffix.lower() != PROFILE_EXTENSION:
+        candidate = candidate.with_name(candidate.name + PROFILE_EXTENSION)
+    if not candidate.is_absolute():
+        candidate = APP_DIR / candidate
+    return candidate
 
 
 # ============================================================
@@ -296,7 +306,8 @@ def create_profile_from_dataset(dataset_path):
         "dataset": dataset_path.name,
         "words": words,
         "records": records,
-        "next_index": 0
+        "next_index": 0,
+        "completed_indices": []
     }
 
     try:
@@ -431,6 +442,18 @@ def load_profile(profile_name):
 
     profile["next_index"] %= len(normalized_words)
 
+    # Older profiles only stored the current index; preserve that progress.
+    if "completed_indices" not in profile:
+        profile["completed_indices"] = list(range(profile["next_index"]))
+    completed = profile.get("completed_indices", [])
+    if not isinstance(completed, list):
+        completed = []
+    profile["completed_indices"] = sorted({
+        value for value in completed
+        if isinstance(value, int) and not isinstance(value, bool)
+        and 0 <= value < len(normalized_words)
+    })
+
     for word in normalized_words:
         if word not in profile["records"]:
             profile["records"][word] = None
@@ -457,20 +480,20 @@ def save_profile(profile):
 # ============================================================
 
 def sort_profile_slowest_first(profile):
-    """Sort words by weakest saved record while preserving word/record pairing."""
+    """Sort weakest to strongest by WPM, not raw elapsed time."""
     words = profile["words"]
     records = profile["records"]
     original_positions = {word: i for i, word in enumerate(words)}
 
     def sort_key(word):
         record = records.get(word)
-        # Unrecorded words come first; among recorded words, longer time is weaker.
         if record is None:
             return (0, 0.0, original_positions[word])
-        return (1, -float(record), original_positions[word])
+        return (1, calculate_wpm(word, float(record)), original_positions[word])
 
     profile["words"] = sorted(words, key=sort_key)
     profile["next_index"] = 0
+    profile["completed_indices"] = []
     save_profile(profile)
 
 
@@ -522,7 +545,7 @@ def print_profile_stats(profile):
 # ============================================================
 
 def list_profiles():
-    profiles = sorted(Path(".").glob("*.json"))
+    profiles = sorted(APP_DIR.glob(f"*{PROFILE_EXTENSION}"))
     valid_profiles = []
 
     for path in profiles:
@@ -680,10 +703,6 @@ def is_maxed(word, record):
 # Formatting
 # ============================================================
 
-def format_ms(seconds):
-    return f"{seconds * 1000:.1f} ms"
-
-
 def format_wpm(word, seconds):
     return f"{calculate_wpm(word, seconds):.1f} WPM"
 
@@ -833,11 +852,7 @@ def render_typing_screen(
         recognized_time = effective_time(word, elapsed)
         current_wpm = calculate_wpm(word, recognized_time)
 
-        stats = (
-            f"{format_ms(recognized_time)}"
-            f"  •  "
-            f"{current_wpm:.1f} WPM"
-        )
+        stats = f"{current_wpm:.1f} WPM"
 
         print(
             panel_line(
@@ -867,39 +882,14 @@ def render_typing_screen(
     print(panel_line())
 
     if previous_record is None:
-        record_text = (
-            "Record: "
-            + styled("--", Style.DIM)
-        )
-
-    elif is_maxed(word, previous_record):
-        record_text = (
-            "Record: "
-            + styled(
-                format_ms(previous_record),
-                Style.BRIGHT_GREEN,
-                bold=True
-            )
-            + "  "
-            + styled(
-                "MAXED",
-                Style.BRIGHT_GREEN,
-                bold=True
-            )
-        )
-
+        record_text = "Record: -- WPM"
     else:
         record_text = (
             "Record: "
             + styled(
-                format_ms(previous_record),
-                Style.BRIGHT_WHITE,
-                bold=True
-            )
-            + "  "
-            + styled(
                 format_wpm(word, previous_record),
-                Style.BRIGHT_WHITE
+                Style.BRIGHT_GREEN if is_maxed(word, previous_record) else Style.BRIGHT_WHITE,
+                bold=True
             )
         )
 
@@ -1249,9 +1239,6 @@ def train_word(
 
     profile["records"][word] = average_time
 
-    # Advance immediately after the repeat set is complete.
-    profile["next_index"] = min(profile["next_index"] + 1, total_words - 1)
-
     save_profile(profile)
 
     return {
@@ -1267,14 +1254,15 @@ def train_word(
 def run_trainer(profile, repeat_required):
     words = profile["words"]
     total_words = len(words)
-    # The saved position is the current word. Only words reached through
-    # sequential completion become unlocked for forward navigation.
-    # Every session starts at the first word in the current order. A complete
-    # pass is required before the profile is reordered.
-    profile["next_index"] = 0
-    save_profile(profile)
+
+    completed_indices = set(profile.get("completed_indices", []))
+    profile["next_index"] %= total_words
+
     unlocked_index = 0
-    completed_indices = set()
+    while unlocked_index in completed_indices and unlocked_index < total_words - 1:
+        unlocked_index += 1
+
+    save_profile(profile)
 
     while True:
         index = profile["next_index"]
@@ -1287,19 +1275,23 @@ def run_trainer(profile, repeat_required):
             move_word(profile, result["direction"], unlocked_index)
             continue
 
-        # Mark a word as completed in this pass. Forward navigation only
-        # unlocks the next word when the current frontier is completed.
         completed_indices.add(index)
-        if index == unlocked_index and unlocked_index < total_words - 1:
-            unlocked_index += 1
+        profile["completed_indices"] = sorted(completed_indices)
 
-        # Reorder only after every index has been completed in this pass.
-        if len(completed_indices) == total_words:
+        if len(completed_indices) >= total_words:
             sort_profile_slowest_first(profile)
             return "complete"
 
-        # train_word advances next_index after a successful word; when the
-        # user revisits an earlier word, continue from the resulting position.
+        while unlocked_index in completed_indices and unlocked_index < total_words - 1:
+            unlocked_index += 1
+
+        for offset in range(1, total_words + 1):
+            candidate = (index + offset) % total_words
+            if candidate not in completed_indices:
+                profile["next_index"] = candidate
+                break
+
+        save_profile(profile)
 
 
 def end_of_run_menu(profile_name, repeat_required, return_to_menu):
@@ -1482,9 +1474,9 @@ def print_usage():
 # ============================================================
 
 def discover_profiles():
-    """Return valid profile files in the current working directory."""
+    """Return valid profile files stored beside the application."""
     found = []
-    for path in sorted(Path(".").glob(f"*{PROFILE_EXTENSION}"), key=lambda item: item.stem.lower()):
+    for path in sorted(APP_DIR.glob(f"*{PROFILE_EXTENSION}"), key=lambda item: item.stem.lower()):
         try:
             profile = json.loads(path.read_text(encoding="utf-8"))
         except (OSError, json.JSONDecodeError):
@@ -1549,8 +1541,6 @@ def launch_profile(profile_name, repeat_required, return_to_menu=False):
             "",
             centered_text(styled(f"REPEAT: {repeat_required}", Style.BRIGHT_YELLOW if repeat_required > 1 else Style.DIM,
                                  bold=repeat_required > 1)),
-            "",
-            centered_text(styled("500 WPM CEILING", Style.DIM)),
             "",
             centered_text(styled("← → navigate   |   any key to start", Style.DIM)),
         ]
